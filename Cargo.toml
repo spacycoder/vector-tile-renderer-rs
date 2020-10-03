@@ -1,0 +1,19 @@
+[package]
+name = "vector-tile-renderer-rs"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+glutin = "0.24.1"
+gl = "0.14.0"
+tobj = "2.0.2"
+image = "0.23.8"
+nalgebra-glm = "0.8.0"
+protobuf = "2.17.0"
+ureq = "1.4.0"
+flate2 = "1.0.17"
+clap = "2.33.3"
+earcutr = { git = "https://github.com/donbright/earcutr" }
+
+[build-dependencies]
+protoc-rust = "2.0"
