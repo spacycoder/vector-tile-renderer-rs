@@ -12,6 +12,7 @@ mod renderable;
 mod scene_graph;
 mod shader;
 mod state;
+mod skybox;
 mod tile_address;
 mod util;
 use glutin::event::{
@@ -77,13 +78,13 @@ fn main() {
         )
         .get_matches();
 
-    let center_lat = matches.value_of("latitude").unwrap_or("63.41743");
+    let center_lat = matches.value_of("latitude").unwrap_or("40.706042");
     let center_lat = match center_lat.parse::<f64>() {
         Ok(n) => n,
         Err(_) => panic!("unable to parse center_lat"),
     };
 
-    let center_lon = matches.value_of("longitude").unwrap_or("10.40424");
+    let center_lon = matches.value_of("longitude").unwrap_or("-74.011991");
     let center_lon = match center_lon.parse::<f64>() {
         Ok(n) => n,
         Err(_) => panic!("unable to parse center_lon"),
@@ -101,7 +102,7 @@ fn main() {
         Err(_) => panic!("unable to parse tile_radius"),
     };
 
-    let api_key = matches.value_of("api_key").unwrap_or("2");
+    let api_key = matches.value_of("api_key").expect("--api_key is required");
     let api_key = String::from(api_key);
 
     // Set up the necessary objects to deal with windows and event handling
@@ -138,6 +139,8 @@ fn main() {
         };
 
         // build shaders
+        let skybox_shader = shader::Shader::new("shaders/skybox.vert", "shaders/skybox.frag");
+
         let shader_color = shader::Shader::new("./shaders/color.vert", "./shaders/color.frag");
 
         let mut green_mat = material::Material::new(shader_color);
@@ -162,7 +165,7 @@ fn main() {
         let mut gray_lit_mat = material::Material::new(shader_color_lit);
         gray_lit_mat.set_vec4("u_color", 0.5, 0.5, 0.5, 1.0);
         let mut light_gray_lit_mat = material::Material::new(shader_color_lit);
-        light_gray_lit_mat.set_vec4("u_color", 0.8, 0.8, 0.8, 1.0);
+        light_gray_lit_mat.set_vec4("u_color", 0.9, 0.9, 0.9, 1.0);
 
         let texture_shader =
             shader::Shader::new("./shaders/texture.vert", "./shaders/texture_phong.frag");
@@ -218,7 +221,29 @@ fn main() {
                 texture: None,
             },
             FeatureOption {
+                layer: String::from("motorway_junction"),
+                material: yellow_mat.clone(),
+                filter: none_filter(),
+                geo_type: vector_tile::Tile_GeomType::LINESTRING,
+                polygon_options: None,
+                line_string_options: Some(LineOptions::new(0.15, 1.0)),
+                texture: None,
+            },
+            FeatureOption {
                 layer: String::from("building"),
+                material: gray_lit_mat.clone(),
+                filter: none_filter(),
+                geo_type: vector_tile::Tile_GeomType::POLYGON,
+                polygon_options: Some(PolygonOptions {
+                    max_height: 1.0,
+                    min_height: 0.0,
+                    build_walls: true,
+                }),
+                line_string_options: None,
+                texture: None,
+            },
+            FeatureOption {
+                layer: String::from("structure"),
                 material: gray_lit_mat.clone(),
                 filter: none_filter(),
                 geo_type: vector_tile::Tile_GeomType::POLYGON,
@@ -285,7 +310,7 @@ fn main() {
             reader.read_to_end(&mut bytes).unwrap();
             let mut decompressor = GzDecoder::new(&bytes[..]);
             let mut bytes: Vec<u8> = Vec::new();
-            decompressor.read_to_end(&mut bytes).unwrap();
+            decompressor.read_to_end(&mut bytes).expect("Invalid token");
             let tile: vector_tile::Tile = protobuf::parse_from_bytes(&bytes).unwrap();
 
             let offset_x: i32 = tile_address.x as i32 - center_tile.x as i32;
@@ -473,6 +498,8 @@ fn main() {
             _ => panic!("not player"),
         };
 
+        let (skybox_vao, skybox_texture) = unsafe { skybox::create_skybox() };
+
         // Set up openGLprojection
         unsafe {
             gl::Enable(gl::CULL_FACE);
@@ -552,6 +579,23 @@ fn main() {
                 // using change of coordinates:
                 let view_transform = camera.get_view_transform();
                 graph.draw_scene(&state, &view_transform, &projection_transform);
+
+                gl::DepthFunc(gl::LEQUAL);
+                skybox_shader.activate();
+                skybox_shader.set_int("skybox", 0);
+
+                // remove translation from the view matrix
+                let mut view = view_transform;
+                view = glm::set_column(&view, 3, &glm::vec4(0.0, 0.0, 0.0, 1.0));
+                skybox_shader.set_mat4("view_transform", &view);
+                skybox_shader.set_mat4("projection", &projection_transform);
+
+                // skybox cube
+                gl::BindVertexArray(skybox_vao);
+                gl::ActiveTexture(gl::TEXTURE0);
+                gl::BindTexture(gl::TEXTURE_CUBE_MAP, skybox_texture);
+                gl::DrawArrays(gl::TRIANGLES, 0, 36);
+                gl::DepthFunc(gl::LESS);
             }
 
             context.swap_buffers().unwrap();
